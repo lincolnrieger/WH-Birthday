@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Woodhouse party enquiries</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <svg class="login-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 5 7 25h18L16 5Z" fill="#4E7A45"/><path d="M16 12 11.5 25h9L16 12Z" fill="#E39B2D"/></svg>
+    <h1>Party enquiries</h1>
+    <p class="login-sub">Woodhouse birthday party bookings, straight from the enquiry form.</p>
+    <form id="login-form">
+      <label for="name">Your name</label>
+      <input id="name" name="name" autocomplete="name" required placeholder="So the team knows who updated what">
+      <label for="password">Team password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+      <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+    </form>
+  </main>
+  <script>
+    const form = document.getElementById('login-form');
+    const errorEl = document.getElementById('login-error');
+    try { form.name.value = localStorage.getItem('wh-name') || ''; } catch {}
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      errorEl.hidden = true;
+      const btn = form.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: form.name.value, password: form.password.value }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Sign in failed');
+        try { localStorage.setItem('wh-name', form.name.value); } catch {}
+        location.href = '/';
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.hidden = false;
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      }
+    });
+  </script>
+</body>
+</html>

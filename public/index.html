@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Woodhouse party enquiries</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 5 7 25h18L16 5Z" fill="#7FA872"/><path d="M16 12 11.5 25h9L16 12Z" fill="#E39B2D"/></svg>
+        <span>Party enquiries</span>
+      </a>
+      <div class="topbar-actions">
+        <span id="sync-info" class="sync-info"></span>
+        <button id="refresh-btn" class="btn btn-ghost-light" type="button">Refresh from sheet</button>
+        <button id="logout-btn" class="btn btn-ghost-light" type="button">Sign out <span id="user-name"></span></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="summary" aria-label="At a glance">
+      <button class="tally" data-view="attention" type="button">
+        <span class="tally-num" id="tally-new">–</span>
+        <span class="tally-label">waiting for a first reply</span>
+      </button>
+      <button class="tally" data-view="followups" type="button">
+        <span class="tally-num" id="tally-followups">–</span>
+        <span class="tally-label">follow-ups due</span>
+      </button>
+      <button class="tally" data-view="upcoming" type="button">
+        <span class="tally-num" id="tally-upcoming">–</span>
+        <span class="tally-label">booked parties in the next 30 days</span>
+      </button>
+      <button class="tally" data-view="pipeline" type="button">
+        <span class="tally-num" id="tally-pipeline">–</span>
+        <span class="tally-label">quotes out, not yet booked</span>
+      </button>
+    </section>
+
+    <section class="controls" aria-label="Filter enquiries">
+      <nav class="views" role="tablist" aria-label="Views">
+        <button role="tab" data-view="attention" type="button">Needs attention</button>
+        <button role="tab" data-view="upcoming" type="button">Upcoming parties</button>
+        <button role="tab" data-view="active" type="button">All open</button>
+        <button role="tab" data-view="all" type="button">Everything</button>
+      </nav>
+      <div class="filters">
+        <input id="search" type="search" placeholder="Search name, email, phone, notes…" aria-label="Search">
+        <select id="status-filter" aria-label="Status">
+          <option value="">Any status</option>
+        </select>
+        <select id="package-filter" aria-label="Package">
+          <option value="">Any package</option>
+        </select>
+        <select id="sort" aria-label="Sort">
+          <option value="party-asc">Party date, soonest first</option>
+          <option value="received-desc">Newest enquiries first</option>
+          <option value="received-asc">Oldest enquiries first</option>
+        </select>
+        <button id="export-btn" class="btn btn-quiet" type="button">Export CSV</button>
+      </div>
+    </section>
+
+    <p id="result-count" class="result-count" aria-live="polite"></p>
+    <div id="list" class="list" aria-busy="true">
+      <p class="empty">Loading enquiries from the sheet…</p>
+    </div>
+  </main>
+
+  <div id="scrim" class="scrim" hidden></div>
+  <aside id="panel" class="panel" aria-hidden="true" aria-labelledby="panel-title" role="dialog">
+    <div id="panel-body"></div>
+  </aside>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
