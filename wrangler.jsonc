@@ -14,7 +14,7 @@
       "binding": "DB",
       "database_name": "woodhouse-enquiries",
       // Replace with the id printed by: npx wrangler d1 create woodhouse-enquiries
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "database_id": "2f74263a-c7e5-456d-b35c-f638ab72fe3e",
       "migrations_dir": "migrations"
     }
   ],
