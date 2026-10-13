@@ -2,13 +2,11 @@
   "name": "woodhouse-party-enquiries",
   "version": "1.0.0",
   "private": true,
-  "description": "Dashboard for managing Woodhouse birthday party enquiries from the Google Form responses sheet",
+  "description": "Simple dashboard for viewing and editing Woodhouse birthday party enquiries in the Google Sheet",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler d1 migrations apply woodhouse-enquiries --remote && wrangler deploy",
-    "db:migrate:local": "wrangler d1 migrations apply woodhouse-enquiries --local",
-    "db:migrate:remote": "wrangler d1 migrations apply woodhouse-enquiries --remote",
+    "deploy": "wrangler deploy",
     "test": "node --test test/*.test.js"
   },
   "devDependencies": {

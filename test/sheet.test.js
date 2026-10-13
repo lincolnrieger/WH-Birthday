@@ -1,63 +1,59 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCsv, normaliseRows, parsePartyDate, parseTimestamp } from '../src/sheet.js';
+import { parseCsv, describeColumns, columnLetter } from '../src/sheet.js';
 
-const at = (s) => parseTimestamp(s);
+const HEADERS = [
+  'Timestamp', 'Email Address', 'Who should we call for all the details? ', 'Where can we reach you? ',
+  "Who's the Star of the show?", 'How many candles are on the cake this year? ', 'How big is the adventure crew? ',
+  'How many grown-ups / spectators will be tagging along?', 'When’s the big adventure happening? ', 'Got a Plan B? ',
+  'Is your adventurer a morning explorer or an afternoon thrill-seeker? ',
+  'We’ve got birthday party packages to suit every adventurer! ',
+  'Want to keep the adventure going? Add a night of camping for just $10 per camper!',
+  'Party bags? Yes, please! We can deliver them in a keepsake Woodhouse camping mug for just $14 per child!',
+  'How Woodhouse are you? ', "Anything else you'd like us to know??? ", 'Column 1', 'Column 2', 'Column 3',
+];
 
-test('form timestamps are read as M/D/YYYY', () => {
-  assert.equal(at('10/14/2024 21:30:32').toISOString(), '2024-10-14T21:30:32.000Z');
-  assert.equal(at('7/6/2025 13:26:11').toISOString(), '2025-07-06T13:26:11.000Z');
+test('form questions get short labels', () => {
+  const cols = describeColumns([HEADERS]);
+  const byKey = Object.fromEntries(cols.filter((c) => c.key).map((c) => [c.key, c]));
+  assert.equal(byKey.childName.label, 'Birthday child');
+  assert.equal(byKey.partyBags.index, 13, 'party bags question is not mistaken for camping');
+  assert.equal(byKey.camping.index, 12);
+  assert.equal(byKey.package.index, 11);
 });
 
-test('party dates in the many ways people write them', () => {
-  const cases = [
-    ['16th of November', '10/5/2024 16:14:27', '2024-11-16', true],
-    ['20/10/2024', '10/8/2024 19:43:30', '2024-10-20', false],
-    ['11/3/2024', '10/14/2024 21:30:32', '2024-11-03', true], // ambiguous, only Nov 3 is after the enquiry
-    ['11/30/2024', '10/15/2024 19:56:51', '2024-11-30', false],
-    ['1/12/2024', '10/15/2024 19:56:51', '2024-12-01', true],
-    ['18/10/25', '7/6/2025 13:26:11', '2025-10-18', false],
-    ['19 October 2025 or 25 October 2025', '7/6/2025 13:26:11', '2025-10-19', false],
-    ['19th of October or 11th of October', '8/28/2025 8:19:45', '2025-10-19', true],
-    ['March 3rd', '11/1/2025 9:00:00', '2026-03-03', true],
-    ['2025-12-06', '11/1/2025 9:00:00', '2025-12-06', false],
-  ];
-  for (const [raw, ts, date, uncertain] of cases) {
-    const r = parsePartyDate(raw, at(ts));
-    assert.equal(r.date, date, raw);
-    assert.equal(r.uncertain, uncertain, `${raw} uncertain`);
-  }
-  assert.deepEqual(parsePartyDate('', at('1/1/2025 0:00:00')), { date: null, uncertain: false });
-  assert.equal(parsePartyDate('sometime soon', at('1/1/2025 0:00:00')).date, null);
+test('Column 1 becomes Notes and the first empty spare column becomes Status', () => {
+  const row = Array(19).fill('');
+  row[0] = '8/23/2025 20:27:10';
+  row[16] = 'emailed 29/8/25';
+  const cols = describeColumns([HEADERS, row]);
+  assert.equal(cols.find((c) => c.key === 'notes').index, 16);
+  assert.equal(cols.find((c) => c.key === 'status').index, 17);
+  assert.equal(cols[18].hidden, true, 'unused spare columns are hidden');
+});
+
+test('existing Status and Notes headings are reused', () => {
+  const headers = [...HEADERS];
+  headers[16] = 'Notes';
+  headers[18] = 'Status';
+  const cols = describeColumns([headers, Array(19).fill('')]);
+  assert.equal(cols.find((c) => c.key === 'notes').index, 16);
+  assert.equal(cols.find((c) => c.key === 'status').index, 18);
+  assert.equal(cols[17].hidden, true);
+});
+
+test('Status and Notes are added as new columns when there are no spare ones', () => {
+  const cols = describeColumns([HEADERS.slice(0, 16)]);
+  assert.deepEqual(cols.filter((c) => c.key === 'notes' || c.key === 'status').map((c) => c.index), [16, 17]);
+});
+
+test('column letters', () => {
+  assert.equal(columnLetter(0), 'A');
+  assert.equal(columnLetter(25), 'Z');
+  assert.equal(columnLetter(26), 'AA');
+  assert.equal(columnLetter(27), 'AB');
 });
 
 test('CSV parsing handles quotes, commas and newlines', () => {
-  const rows = parseCsv('a,b\n"x, y","line1\nline2 ""q"""\n');
-  assert.deepEqual(rows, [['a', 'b'], ['x, y', 'line1\nline2 "q"']]);
-});
-
-test('rows are mapped by question wording, extra columns become sheet notes', async () => {
-  const headers = [
-    'Timestamp', 'Email Address', 'Who should we call for all the details? ', 'Where can we reach you? ',
-    "Who's the Star of the show?", 'How many candles are on the cake this year? ', 'How big is the adventure crew? ',
-    'How many grown-ups / spectators will be tagging along?', 'When’s the big adventure happening? ', 'Got a Plan B? ',
-    'Is your adventurer a morning explorer or an afternoon thrill-seeker? ',
-    'We’ve got birthday party packages to suit every adventurer! ',
-    'Want to keep the adventure going? Add a night of camping for just $10 per camper!',
-    'Party bags? Yes, please! We can deliver them in a keepsake Woodhouse camping mug for just $14 per child!',
-    'How Woodhouse are you? ', "Anything else you'd like us to know??? ", 'Column 1',
-  ];
-  const row = ['8/23/2025 20:27:10', 'jess@example.com', 'Jess', '0400 000 000', 'Ewan', '8', '9', '4', '29/11/2025', '',
-    '', 'Silver Party Package', 'No thanks', 'Not sure yet', 'This will be our first time', '', 'emailed 29/8/25'];
-  const [e] = await normaliseRows([headers, row, ['', '', '', '']]);
-  assert.equal(e.childName, 'Ewan');
-  assert.equal(e.package, 'Silver Party Package');
-  assert.equal(e.camping, 'No thanks');
-  assert.equal(e.partyBags, 'Not sure yet');
-  assert.equal(e.partyDate, '2025-11-29');
-  assert.equal(e.kidsCount, 9);
-  assert.equal(e.sheetNotes, 'emailed 29/8/25');
-  assert.match(e.id, /^[0-9a-f]{16}$/);
-  const [again] = await normaliseRows([headers, row]);
-  assert.equal(again.id, e.id, 'ids are stable between reads');
+  assert.deepEqual(parseCsv('a,b\n"x, y","line1\nline2 ""q"""\n'), [['a', 'b'], ['x, y', 'line1\nline2 "q"']]);
 });

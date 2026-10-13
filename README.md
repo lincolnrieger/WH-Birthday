@@ -1,159 +1,82 @@
 # Woodhouse party enquiries
 
-A small dashboard for managing birthday party enquiries that come in through the
-Woodhouse Google Form. It reads the form responses straight from the Google Sheet
-and lets the team:
+A simple page that shows every birthday party enquiry from the Google Form as an
+easy-to-read card. Click **Edit** on a card to change anything (including a
+**Status** and **Notes**), and the change is saved straight into the Google Sheet.
 
-- see what needs a reply, which follow-ups are due, and which parties are coming up
-- search and filter by status, package and date, and export to CSV
-- open an enquiry to call, text or email the family in one tap
-- set a status (New → Contacted → Quoted → Booked → Completed, or Not going ahead),
-  a confirmed party date, a follow-up date, the quote and notes
-- log calls, emails and deposits, with a timeline of who did what
+- Search box and a status filter at the top
+- Tap a phone number to call, or an email to write
+- Protected by a team password
 
-The Google Sheet is **never modified**. Everything the team adds lives in a
-Cloudflare D1 database, linked to each form response.
+It runs on Cloudflare Workers (free plan is fine). No database is needed: the
+Google Sheet is the only place the data lives.
 
-It runs as a single Cloudflare Worker (static files + a small API) behind a team
-password.
+## Setup
 
-## How it fits together
+### 1. Check the sheet ID
 
-```
-Google Form ──> Google Sheet ("Form Responses 1")
-                      │  read-only, cached 60s
-                      ▼
-        Cloudflare Worker (src/worker.js) ──> D1 database (status, notes, activity)
-                      │
-                      ▼
-          Dashboard (public/index.html + app.js)
-```
+In `wrangler.jsonc`, `SHEET_ID` must be the sheet the form saves to: the part
+of the sheet's web address between `/d/` and `/edit`. `SHEET_TAB` is the tab
+name (`Form Responses 1`).
 
-| Path | What it is |
+### 2. Deploy on Cloudflare
+
+1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Import a repository**.
+2. Pick this repo, branch `main`.
+3. Leave the build command empty and the deploy command as `npx wrangler deploy`.
+4. **Create and deploy**.
+
+### 3. Set the password
+
+Worker → **Settings → Variables and Secrets** → **Add**, type **Secret**:
+
+| Name | Value |
 | --- | --- |
-| `src/worker.js` | Login, API routes, merges sheet rows with saved status/notes |
-| `src/sheet.js` | Reads the sheet and turns free-text answers (dates like "16th of November", "18/10/25") into usable data |
-| `src/auth.js` | Shared-password login with a signed cookie |
-| `public/` | The dashboard UI (plain HTML/CSS/JS, no build step) |
-| `migrations/` | D1 database tables |
-| `test/` | Tests for the sheet parsing (`npm test`) |
+| `DASHBOARD_PASSWORD` | the password staff type to sign in |
+| `SESSION_SECRET` | any long random text (30+ characters) |
 
-## Deploying to Cloudflare
+At this point the page works in **read-only** mode, as long as the sheet is
+shared as "Anyone with the link can view".
 
-You need Node.js 20+ and a Cloudflare account.
+### 4. Turn on editing (Google "robot" account)
 
-### 1. Create the database
-
-```bash
-npm install
-npx wrangler login
-npx wrangler d1 create woodhouse-enquiries
-```
-
-Copy the `database_id` it prints into `wrangler.jsonc` (replace
-`REPLACE_WITH_YOUR_D1_DATABASE_ID`), then commit and push that change.
-
-### 2. Point it at the right sheet
-
-`wrangler.jsonc` has `SHEET_ID` set to the sheet you shared
-(`Copy of Woodhouse Birthday Party Enquiry (Responses)`). If the form actually
-writes to a different sheet, change `SHEET_ID` to that sheet's ID (the long part
-of its URL between `/d/` and `/edit`) so new enquiries show up. `SHEET_TAB` is
-the tab name, `Form Responses 1` by default.
-
-### 3. Give the Worker access to the sheet
-
-The sheet contains families' names, phone numbers and emails, so the recommended
-setup is a Google service account that can read the sheet while the sheet itself
-stays private.
-
-**Recommended: service account**
-
-1. In [Google Cloud Console](https://console.cloud.google.com/) create (or pick) a project.
-2. Enable the **Google Sheets API** (APIs & Services → Library).
-3. APIs & Services → Credentials → Create credentials → **Service account**. No roles are needed.
-4. Open the service account → Keys → Add key → JSON. A `.json` file downloads.
-5. In the Google Sheet, click **Share** and add the service account's email
-   (`…@….iam.gserviceaccount.com`) as a **Viewer**.
-6. Save the key as a secret (paste the whole file contents when prompted):
-
-   ```bash
-   npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
-   ```
-
-7. You can now change the sheet's general access back to **Restricted**.
-
-**Quick start: link sharing**
-
-If `GOOGLE_SERVICE_ACCOUNT_JSON` isn't set, the Worker reads the sheet's public
-CSV export. That only works while the sheet is shared as "Anyone with the link
-can view", which means anyone with the link can see the customer details. Fine
-for trying it out; switch to the service account before relying on it.
-
-### 4. Set the team password
-
-```bash
-npx wrangler secret put DASHBOARD_PASSWORD   # what staff type to sign in
-npx wrangler secret put SESSION_SECRET       # any long random string, e.g. from: openssl rand -hex 32
-```
-
-Changing `SESSION_SECRET` signs everyone out.
-
-### 5. Deploy
-
-**From your computer:**
-
-```bash
-npm run deploy
-```
-
-This creates the database tables (if needed) and deploys. Wrangler prints the
-URL, e.g. `https://woodhouse-party-enquiries.<your-subdomain>.workers.dev`.
-
-**Or automatically on every push to GitHub:**
-
-1. Cloudflare dashboard → **Workers & Pages** → Create → **Import a repository**
-   and pick this repo.
-2. Set the **Deploy command** to `npm run deploy` (so database migrations run
-   too). Leave the build command empty.
-3. Add `DASHBOARD_PASSWORD`, `SESSION_SECRET` and (optionally)
-   `GOOGLE_SERVICE_ACCOUNT_JSON` under the Worker's **Settings → Variables and
-   Secrets** as type *Secret*, if you didn't already set them with Wrangler.
-
-To use your own domain (e.g. `parties.woodhouse.org.au`), add it under the
-Worker's **Settings → Domains & Routes**.
-
-### Extra protection (optional)
-
-For per-person logins instead of a shared password, put the Worker behind
-[Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/)
-(free for up to 50 users) and allow your staff emails. The password screen still
-applies on top.
-
-## Running it locally
-
-```bash
-cp .dev.vars.example .dev.vars        # then edit the values
-npm run db:migrate:local
-npm run dev                           # http://localhost:8787
-```
-
-`npm test` runs the parsing tests.
+1. Go to **console.cloud.google.com** → create a project.
+2. Search **Google Sheets API** → **Enable**.
+3. **APIs & Services → Credentials → Create credentials → Service account**
+   → give it a name → **Done**.
+4. Click the new service account → copy its email (ends in
+   `iam.gserviceaccount.com`).
+5. **Keys** tab → **Add key → Create new key → JSON**. A file downloads.
+6. In the Google Sheet → **Share** → paste that email → set it to **Editor** →
+   untick "Notify people" → **Share**.
+7. Open the downloaded file in Notepad/TextEdit, copy everything, and add it in
+   Cloudflare as a **Secret** named `GOOGLE_SERVICE_ACCOUNT_JSON`.
+8. Optional but recommended: set the sheet's **General access** back to
+   **Restricted**. The dashboard keeps working through the robot account.
 
 ## Good to know
 
-- **Refreshing:** the sheet is cached for 60 seconds. "Refresh from sheet" pulls
-  it immediately.
-- **Party dates:** families type dates in all sorts of ways. The dashboard makes
-  its best guess (preferring a date after the enquiry was sent) and shows a
-  striped date tile with a `?` when it had to guess. Set **Confirmed party date**
-  on the enquiry to fix it.
-- **Existing sheet notes:** anything in the sheet's spare columns (like
-  "emailed 29/8/25") shows on the enquiry as "Notes written in the sheet", and
-  those enquiries start as *Contacted* rather than *New*.
-- **Old enquiries:** "Needs attention" and "All open" hide parties whose date has
-  passed. Use "Everything" to see them.
-- **Changing the form:** columns are matched by the question wording
-  (e.g. "Star of the show", "candles", "adventure crew"), so reordering
-  questions is fine. If you reword a question substantially, update the matching
-  pattern in `FIELDS` at the top of `src/sheet.js`.
+- **Status and Notes columns:** the first time you save a status or note, the
+  dashboard turns the sheet's spare `Column 1` into **Notes** (it already holds
+  notes like "emailed 29/8/25") and the next empty spare column into **Status**.
+  You can also type in those columns directly in the sheet.
+- **Saving is safe if rows move:** each save checks the row's form timestamp, so
+  sorting or deleting rows in the sheet won't make an edit land on the wrong
+  enquiry. The timestamp itself can't be edited.
+- **Refresh:** the page reads the sheet at most once a minute; the **Refresh**
+  button reads it immediately.
+- **Changing the form:** cards use short labels matched from the question
+  wording (e.g. "Star of the show" → *Birthday child*). If a question is reworded
+  a lot, update `FIELDS` at the top of `src/sheet.js`.
+
+## Files
+
+| Path | What it is |
+| --- | --- |
+| `src/worker.js` | Login and the read/save API |
+| `src/sheet.js` | Reads and writes the Google Sheet |
+| `src/auth.js` | Team password and sign-in cookie |
+| `public/` | The page itself (plain HTML/CSS/JS) |
+| `test/` | Tests (`npm test`) |
+
+Local testing: `cp .dev.vars.example .dev.vars`, fill it in, then `npm run dev`.
