@@ -18,70 +18,31 @@
         <span>Party enquiries</span>
       </a>
       <div class="topbar-actions">
-        <span id="sync-info" class="sync-info"></span>
-        <button id="refresh-btn" class="btn btn-ghost-light" type="button">Refresh from sheet</button>
-        <button id="logout-btn" class="btn btn-ghost-light" type="button">Sign out <span id="user-name"></span></button>
+        <button id="refresh-btn" class="btn btn-ghost-light" type="button">Refresh</button>
+        <button id="logout-btn" class="btn btn-ghost-light" type="button">Sign out</button>
       </div>
     </div>
   </header>
 
   <main class="page">
-    <section class="summary" aria-label="At a glance">
-      <button class="tally" data-view="attention" type="button">
-        <span class="tally-num" id="tally-new">–</span>
-        <span class="tally-label">waiting for a first reply</span>
-      </button>
-      <button class="tally" data-view="followups" type="button">
-        <span class="tally-num" id="tally-followups">–</span>
-        <span class="tally-label">follow-ups due</span>
-      </button>
-      <button class="tally" data-view="upcoming" type="button">
-        <span class="tally-num" id="tally-upcoming">–</span>
-        <span class="tally-label">booked parties in the next 30 days</span>
-      </button>
-      <button class="tally" data-view="pipeline" type="button">
-        <span class="tally-num" id="tally-pipeline">–</span>
-        <span class="tally-label">quotes out, not yet booked</span>
-      </button>
-    </section>
-
-    <section class="controls" aria-label="Filter enquiries">
-      <nav class="views" role="tablist" aria-label="Views">
-        <button role="tab" data-view="attention" type="button">Needs attention</button>
-        <button role="tab" data-view="upcoming" type="button">Upcoming parties</button>
-        <button role="tab" data-view="active" type="button">All open</button>
-        <button role="tab" data-view="all" type="button">Everything</button>
-      </nav>
-      <div class="filters">
-        <input id="search" type="search" placeholder="Search name, email, phone, notes…" aria-label="Search">
-        <select id="status-filter" aria-label="Status">
-          <option value="">Any status</option>
-        </select>
-        <select id="package-filter" aria-label="Package">
-          <option value="">Any package</option>
-        </select>
-        <select id="sort" aria-label="Sort">
-          <option value="party-asc">Party date, soonest first</option>
-          <option value="received-desc">Newest enquiries first</option>
-          <option value="received-asc">Oldest enquiries first</option>
-        </select>
-        <button id="export-btn" class="btn btn-quiet" type="button">Export CSV</button>
-      </div>
-    </section>
-
+    <div class="filters">
+      <input id="search" type="search" placeholder="Search anything…" aria-label="Search">
+      <select id="status-filter" aria-label="Status">
+        <option value="">All statuses</option>
+      </select>
+      <select id="sort" aria-label="Sort">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+      </select>
+    </div>
+    <p id="notice" class="notice" hidden></p>
     <p id="result-count" class="result-count" aria-live="polite"></p>
-    <div id="list" class="list" aria-busy="true">
+    <div id="list" class="cards" aria-busy="true">
       <p class="empty">Loading enquiries from the sheet…</p>
     </div>
   </main>
 
-  <div id="scrim" class="scrim" hidden></div>
-  <aside id="panel" class="panel" aria-hidden="true" aria-labelledby="panel-title" role="dialog">
-    <div id="panel-body"></div>
-  </aside>
-
   <div id="toast" class="toast" role="status" hidden></div>
-
   <script src="/app.js" type="module"></script>
 </body>
 </html>

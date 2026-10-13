@@ -9,17 +9,10 @@
     // Every request goes through the Worker first so the dashboard is behind the login
     "run_worker_first": true
   },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "woodhouse-enquiries",
-      // Replace with the id printed by: npx wrangler d1 create woodhouse-enquiries
-      "database_id": "2f74263a-c7e5-456d-b35c-f638ab72fe3e",
-      "migrations_dir": "migrations"
-    }
-  ],
   "vars": {
+    // The Google Sheet the form saves to: the part of its web address between /d/ and /edit
     "SHEET_ID": "1qnZ28Wvc_s_soJjGve_hlsp7WGN_Qb0e7g2BZlPVATg",
+    // The tab with the form responses
     "SHEET_TAB": "Form Responses 1"
   },
   "observability": { "enabled": true }

@@ -1,12 +1,11 @@
-import { fetchSheetRows, normaliseRows } from './sheet.js';
+import { fetchSheetRows, describeColumns, writeCells } from './sheet.js';
 import { checkPassword, createSessionCookie, clearSessionCookie, getSession } from './auth.js';
-
-export const STATUSES = ['new', 'contacted', 'quoted', 'booked', 'completed', 'lost'];
 
 // Files that can be loaded before signing in.
 const PUBLIC_PATHS = new Set(['/login', '/login.html', '/styles.css', '/favicon.svg']);
 
-const SHEET_CACHE_SECONDS = 60;
+const CACHE_SECONDS = 60;
+const MAX_VALUE_LENGTH = 5000;
 
 export default {
   async fetch(request, env, ctx) {
@@ -25,7 +24,14 @@ export default {
         return Response.redirect(new URL('/login', url), 302);
       }
 
-      if (url.pathname.startsWith('/api/')) return api(request, env, ctx, url, session);
+      if (url.pathname === '/api/enquiries' && request.method === 'GET') {
+        return listEnquiries(env, ctx, url.searchParams.has('fresh'), session);
+      }
+      if (url.pathname === '/api/enquiries' && request.method === 'PATCH') {
+        return updateEnquiry(request, env);
+      }
+      if (url.pathname.startsWith('/api/')) return json({ error: 'Not found' }, 404);
+
       return env.ASSETS.fetch(request);
     } catch (err) {
       console.error(err);
@@ -46,167 +52,76 @@ async function login(request, env) {
   return json({ ok: true, name }, 200, { 'Set-Cookie': await createSessionCookie(env, name) });
 }
 
-async function api(request, env, ctx, url, session) {
-  const parts = url.pathname.split('/').filter(Boolean); // ['api', 'enquiries', id?, 'activity'?]
-
-  if (parts[1] === 'me') return json({ name: session.name });
-
-  if (parts[1] === 'enquiries' && parts.length === 2 && request.method === 'GET') {
-    return listEnquiries(env, ctx, url.searchParams.has('fresh'), session);
-  }
-
-  if (parts[1] === 'enquiries' && parts.length === 3 && request.method === 'PATCH') {
-    return updateEnquiry(request, env, parts[2], session);
-  }
-
-  if (parts[1] === 'enquiries' && parts[3] === 'activity') {
-    if (!/^[0-9a-f]{16}$/.test(parts[2])) return json({ error: 'Unknown enquiry' }, 404);
-    if (request.method === 'GET') {
-      const { results } = await env.DB.prepare(
-        'SELECT at, by, action FROM activity WHERE enquiry_id = ? ORDER BY at DESC, id DESC LIMIT 100'
-      ).bind(parts[2]).all();
-      return json({ activity: results });
-    }
-    if (request.method === 'POST') {
-      const body = await request.json().catch(() => ({}));
-      const action = String(body.action || '').trim().slice(0, 500);
-      if (!action) return json({ error: 'Add a description of what happened' }, 400);
-      await logActivity(env, parts[2], session.name, action);
-      return json({ ok: true });
-    }
-  }
-
-  return json({ error: 'Not found' }, 404);
+function cacheKey(env) {
+  return new Request(`https://cache.internal/sheet/${env.SHEET_ID}/${encodeURIComponent(env.SHEET_TAB || '')}`);
 }
 
 async function listEnquiries(env, ctx, fresh, session) {
-  const cache = caches.default;
-  const cacheKey = new Request(`https://cache.internal/sheet/${env.SHEET_ID}/${encodeURIComponent(env.SHEET_TAB || '')}`);
-
-  let sheet = fresh ? null : await cache.match(cacheKey).then((r) => r && r.json());
+  let sheet = fresh ? null : await caches.default.match(cacheKey(env)).then((r) => r && r.json());
   if (!sheet) {
-    const { rows, source } = await fetchSheetRows(env);
-    sheet = { enquiries: await normaliseRows(rows), source, fetchedAt: new Date().toISOString() };
-    ctx.waitUntil(cache.put(cacheKey, new Response(JSON.stringify(sheet), {
-      headers: { 'Cache-Control': `max-age=${SHEET_CACHE_SECONDS}` },
+    const { rows, canEdit } = await fetchSheetRows(env);
+    sheet = { rows, canEdit, fetchedAt: new Date().toISOString() };
+    ctx.waitUntil(caches.default.put(cacheKey(env), new Response(JSON.stringify(sheet), {
+      headers: { 'Cache-Control': `max-age=${CACHE_SECONDS}` },
     })));
   }
 
-  const { results } = await env.DB.prepare('SELECT * FROM enquiry_state').all();
-  const state = new Map(results.map((r) => [r.id, r]));
-
-  const enquiries = sheet.enquiries.map((e) => {
-    const s = state.get(e.id);
-    return {
-      ...e,
-      status: s ? s.status : defaultStatus(e),
-      notes: s?.notes || '',
-      confirmedDate: s?.confirmed_date || null,
-      followUp: s?.follow_up || null,
-      quote: s?.quote || '',
-      updatedAt: s?.updated_at || null,
-      updatedBy: s?.updated_by || null,
-    };
+  const columns = describeColumns(sheet.rows);
+  const enquiries = [];
+  sheet.rows.slice(1).forEach((r, i) => {
+    const values = columns.map((c) => String(r[c.index] ?? ''));
+    if (values.some((v) => v.trim())) enquiries.push({ row: i + 2, values });
   });
 
   return json({
+    columns: columns.map(({ index, key, label, header, hidden }) => ({ index, key, label, header, hidden })),
     enquiries,
-    source: sheet.source,
+    canEdit: sheet.canEdit,
     fetchedAt: sheet.fetchedAt,
     user: session.name,
-    statuses: STATUSES,
   });
 }
 
-// Enquiries nobody has touched in the dashboard yet. If staff already wrote
-// something in the sheet's spare columns (e.g. "emailed 29/8/25") treat it as contacted.
-function defaultStatus(e) {
-  return e.sheetNotes ? 'contacted' : 'new';
-}
-
-const EDITABLE = {
-  status: 'status',
-  notes: 'notes',
-  confirmedDate: 'confirmed_date',
-  followUp: 'follow_up',
-  quote: 'quote',
-};
-
-const LABELS = {
-  status: 'Status',
-  confirmedDate: 'Party date',
-  followUp: 'Follow-up date',
-  quote: 'Quote',
-};
-
-async function updateEnquiry(request, env, id, session) {
-  if (!/^[0-9a-f]{16}$/.test(id)) return json({ error: 'Unknown enquiry' }, 404);
+// Body: { row: 12, timestamp: '8/23/2025 20:27:10', changes: { "<column index>": "new value" } }
+async function updateEnquiry(request, env) {
+  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    return json({ error: 'Editing needs the Google service account set up (see README, step 4).' }, 400);
+  }
   const body = await request.json().catch(() => ({}));
+  const changes = Object.entries(body.changes || {});
+  if (!changes.length) return json({ error: 'Nothing to save' }, 400);
 
-  const changes = {};
-  for (const key of Object.keys(EDITABLE)) {
-    if (!(key in body)) continue;
-    let value = body[key] === null ? null : String(body[key]).trim();
-    if (key === 'status' && !STATUSES.includes(value)) return json({ error: 'Choose a valid status' }, 400);
-    if ((key === 'confirmedDate' || key === 'followUp') && value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      return json({ error: 'Dates must be in YYYY-MM-DD format' }, 400);
+  // Always check against the live sheet, in case rows were sorted or deleted since the page loaded.
+  const { rows } = await fetchSheetRows(env);
+  const columns = describeColumns(rows);
+  const tsCol = columns.find((c) => c.key === 'timestamp');
+
+  let row = Number(body.row);
+  if (tsCol) {
+    const matches = (n) => n >= 2 && String(rows[n - 1]?.[tsCol.index] ?? '') === String(body.timestamp ?? '');
+    if (!matches(row)) {
+      const found = rows.findIndex((r, i) => i > 0 && matches(i + 1));
+      if (found === -1) {
+        return json({ error: 'This enquiry has moved or been deleted in the sheet. Refresh and try again.' }, 409);
+      }
+      row = found + 1;
     }
-    if (key === 'notes') value = (value || '').slice(0, 5000);
-    if (key === 'quote') value = (value || '').slice(0, 200);
-    if ((key === 'confirmedDate' || key === 'followUp') && !value) value = null;
-    changes[key] = value;
   }
-  if (!Object.keys(changes).length) return json({ error: 'Nothing to update' }, 400);
+  if (!Number.isInteger(row) || row < 2) return json({ error: 'Unknown row' }, 400);
 
-  const existing = await env.DB.prepare('SELECT * FROM enquiry_state WHERE id = ?').bind(id).first();
-  const current = existing || {
-    id,
-    status: body.previousStatus && STATUSES.includes(body.previousStatus) ? body.previousStatus : 'new',
-    notes: '',
-    confirmed_date: null,
-    follow_up: null,
-    quote: '',
-  };
-
-  const next = { ...current };
-  const log = [];
-  for (const [key, value] of Object.entries(changes)) {
-    const col = EDITABLE[key];
-    if ((current[col] ?? null) === value) continue;
-    next[col] = value;
-    if (key === 'notes') log.push('Updated notes');
-    else if (key === 'status') log.push(`Status: ${current.status} → ${value}`);
-    else log.push(`${LABELS[key]}: ${value || 'cleared'}`);
+  const updates = [];
+  for (const [colIndex, value] of changes) {
+    const col = columns.find((c) => c.index === Number(colIndex));
+    if (!col) return json({ error: 'Unknown column' }, 400);
+    if (col.key === 'timestamp') return json({ error: 'The form timestamp cannot be edited' }, 400);
+    updates.push({ row, col: col.index, value: String(value ?? '').slice(0, MAX_VALUE_LENGTH) });
+    // First time Status or Notes is used, give the spare column a proper heading.
+    if (col.newHeader && col.header !== col.newHeader) updates.push({ row: 1, col: col.index, value: col.newHeader });
   }
-  next.updated_at = new Date().toISOString();
-  next.updated_by = session.name;
 
-  await env.DB.prepare(
-    `INSERT INTO enquiry_state (id, status, notes, confirmed_date, follow_up, quote, updated_at, updated_by)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-     ON CONFLICT(id) DO UPDATE SET status = ?2, notes = ?3, confirmed_date = ?4, follow_up = ?5,
-       quote = ?6, updated_at = ?7, updated_by = ?8`
-  ).bind(id, next.status, next.notes, next.confirmed_date, next.follow_up, next.quote, next.updated_at, next.updated_by).run();
-
-  for (const action of log) await logActivity(env, id, session.name, action);
-
-  return json({
-    ok: true,
-    enquiry: {
-      status: next.status,
-      notes: next.notes,
-      confirmedDate: next.confirmed_date,
-      followUp: next.follow_up,
-      quote: next.quote,
-      updatedAt: next.updated_at,
-      updatedBy: next.updated_by,
-    },
-  });
-}
-
-async function logActivity(env, id, by, action) {
-  await env.DB.prepare('INSERT INTO activity (enquiry_id, at, by, action) VALUES (?, ?, ?, ?)')
-    .bind(id, new Date().toISOString(), by, action).run();
+  await writeCells(env, updates);
+  await caches.default.delete(cacheKey(env));
+  return json({ ok: true, row });
 }
 
 function json(data, status = 200, headers = {}) {
